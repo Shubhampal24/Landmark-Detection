@@ -1,0 +1,11 @@
+Landmark Detection Project
+
+Overview
+This repository contains the code and resources for a landmark detection project using deep learning techniques. The project utilizes the Google Landmark V2 dataset to train a model that can identify various landmarks from images.
+
+Dataset
+The dataset used for this project is the Google Landmark V2 dataset. This dataset is one of the largest available for landmark recognition and contains millions of images of various landmarks around the world.
+
+Source: Google Landmark V2
+Contents: The dataset consists of images with corresponding landmark labels.
+Size: The dataset is divided into training and testing sets.
