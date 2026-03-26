@@ -1,197 +1,177 @@
-
-# import neccesary libraries
-import numpy as np
-import pandas as pd
-import keras
-import cv2
-from matplotlib import pyplot as plt
 import os
 import random
+import numpy as np
+import pandas as pd
+import cv2
 from PIL import Image
-
-
-#load the dataset
-samples = 20000
-df = pd.read_csv("train.csv")
-base_path = "./images/"
-df = df.loc[:samples,:]
-num_classes = len(df["landmark_id"].unique())
-num_data = len(df)
-
-print("Size of training data:", df.shape)
-print("Number of unique classes:", num_classes)
-
-data = pd.DataFrame(df['landmark_id'].value_counts())
-#index the data frame
-data.reset_index(inplace=True)
-data.columns=['landmark_id','count']
-print(data.head(10))
-print(data.tail(10))
-
-print(data['count'].describe())#statistical data for the distribution
-plt.hist(data['count'],100,range = (0,944),label = 'test')#Histogram of the distribution
-plt.xlabel("Amount of images")
-plt.ylabel("Occurences")
-
-# Assuming `data` contains 'count' and 'landmark_id'
-print("Amount of classes with less than or equal to five datapoints:", (data['count'].between(0, 5)).sum())
-print("Amount of classes between five and 10 datapoints:", (data['count'].between(6, 10)).sum())
-
-# Plotting histogram
-n = plt.hist(df["landmark_id"], bins=sorted(df["landmark_id"].unique()))
-freq_info = n[0]
-plt.xlim(0, df['landmark_id'].max())
-plt.ylim(0, df['landmark_id'].value_counts().max())
-plt.xlabel('Landmark ID')
-plt.ylabel('Number of images')
-plt.show()
-
-
-
-# print random images from dataset
+from matplotlib import pyplot as plt
 from sklearn.preprocessing import LabelEncoder
-lencoder = LabelEncoder()
-lencoder.fit(df["landmark_id"])
-def encode_label(lbl):
-    return lencoder.transform(lbl)
-def decode_label(lbl):
-    return lencoder.inverse_transform(lbl)
-def get_image_from_number(num):
-    fname, label = df.loc[num,:]
-    fname = fname + ".jpg"
-    f1 = fname[0]
-    f2 = fname[1]
-    f3 = fname[2]
-    path = os.path.join(f1,f2,f3,fname)
-    im = cv2.imread(os.path.join(base_path,path))
-    return im, label
-print("4 sample images from random classes:")
-fig=plt.figure(figsize=(16, 16))
-for i in range(1,5):
-    a = random.choices(os.listdir(base_path), k=3)
-    folder = base_path+'/'+a[0]+'/'+a[1]+'/'+a[2]
-    random_img = random.choice(os.listdir(folder))
-    img = np.array(Image.open(folder+'/'+random_img))
-    fig.add_subplot(1, 4, i)
-    plt.imshow(img)
-    plt.axis('off')
-plt.show()
+import tensorflow as tf
+from tensorflow.keras.applications import VGG19
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Flatten
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.optimizers import RMSprop
 
+# Configuration
+CSV_PATH = "train.csv"
+BASE_PATH = "./images/"
+SAMPLES = 20000
+BATCH_SIZE = 16
+EPOCHS = 15
+IMG_SIZE = (224, 224)
 
+def load_data(csv_path, samples):
+    if not os.path.exists(csv_path):
+        print(f"Warning: {csv_path} not found. Returning empty dataframe.")
+        return pd.DataFrame(columns=["id", "landmark_id"])
+    
+    df = pd.read_csv(csv_path)
+    # Ensure we only use 'id' and 'landmark_id'
+    if 'id' in df.columns and 'landmark_id' in df.columns:
+        df = df[['id', 'landmark_id']]
+    elif len(df.columns) >= 2:
+        # Fallback if the columns are named differently (e.g. index 0 is id, index 1 or 2 is label)
+        cols = df.columns.tolist()
+        df = df[[cols[0], cols[-1]]]
+        df.columns = ['id', 'landmark_id']
+    
+    df = df.head(samples)
+    return df
 
-# training the model 
-from keras.applications import VGG19
-from keras.layers import *
-from keras import Sequential
-# Parameters
-# learning_rate   = 0.0001
-# decay_speed     = 1e-6
-# momentum        = 0.09
-# loss_function   = "sparse_categorical_crossentropy"
-source_model = VGG19(weights=None)
-#new_layer = Dense(num_classes, activation=activations.softmax, name='prediction')
-drop_layer = Dropout(0.5)
-drop_layer2 = Dropout(0.5)
-model = Sequential()
-for layer in source_model.layers[:-1]: # go through until last layer
-    if layer == source_model.layers[-25]:
-        model.add(BatchNormalization())
-    model.add(layer)
-#     if layer == source_model.layers[-3]:
-#         model.add(drop_layer)
-# model.add(drop_layer2)
-model.add(Dense(num_classes, activation="softmax"))
-model.summary()
-optim1 = keras.optimizers.RMSprop(learning_rate = 0.0001, momentum = 0.09)
-optim2 = keras.optimizers.Adam(learning_rate=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-07)
-model.compile(optimizer=optim1,
-             loss="sparse_categorical_crossentropy",
-             metrics=["accuracy"])
-sgd = SGD(lr=learning_rate, decay=decay_speed, momentum=momentum, nesterov=True)
-rms = keras.optimizers.RMSprop(lr=learning_rate, momentum=momentum)
-model.compile(optimizer=rms,
-              loss=loss_function,
-              metrics=["accuracy"])
-print("Model compiled! n")
+def perform_eda(df):
+    if df.empty:
+        return
+        
+    num_classes = len(df["landmark_id"].unique())
+    print("Size of data:", df.shape)
+    print("Number of unique classes:", num_classes)
 
+    data = pd.DataFrame(df['landmark_id'].value_counts()).reset_index()
+    data.columns = ['landmark_id', 'count']
+    
+    print("\nTop 10 classes by frequency:")
+    print(data.head(10))
+    
+    print("\nClasses with few datapoints:")
+    print("<= 5 datapoints:", (data['count'].between(0, 5)).sum())
+    print("6 to 10 datapoints:", (data['count'].between(6, 10)).sum())
 
+    plt.figure(figsize=(10, 5))
+    plt.hist(data['count'], bins=100, range=(0, data['count'].max() or 1000))
+    plt.xlabel("Amount of images")
+    plt.ylabel("Occurrences")
+    plt.title("Distribution of Images per Class")
+    plt.savefig("class_distribution.png")
+    print("\nSaved class distribution histogram to class_distribution.png")
+    plt.close()
 
-def get_image_from_number(num, df):
-    fname, label = df.iloc[num,:]
-    fname = fname + ".jpg"
-    f1 = fname[0]
-    f2 = fname[1]
-    f3 = fname[2]
-    path = os.path.join(f1,f2,f3,fname)
-    im = cv2.imread(os.path.join(base_path,path))
-    return im, label
-def image_reshape(im, target_size):
-    return cv2.resize(im, target_size)
-def get_batch(dataframe,start, batch_size):
+def get_image_path(fname, base_path):
+    fname_str = str(fname)
+    # GLD datasets typically use the first 3 characters of the ID for folders
+    if len(fname_str) >= 3:
+        f1, f2, f3 = fname_str[0], fname_str[1], fname_str[2]
+        return os.path.join(base_path, f1, f2, f3, f"{fname_str}.jpg")
+    return os.path.join(base_path, f"{fname_str}.jpg")
+
+def get_image_and_label(num, df, base_path):
+    row = df.iloc[num]
+    fname = row['id']
+    label = row['landmark_id']
+    
+    img_path = get_image_path(fname, base_path)
+    if os.path.exists(img_path):
+        im = cv2.imread(img_path)
+        if im is not None:
+            return im, label
+            
+    # Return a black image if not found so the pipeline doesn't crash during missing images
+    return np.zeros((IMG_SIZE[0], IMG_SIZE[1], 3), dtype=np.uint8), label
+
+def get_batch(dataframe, start, batch_size, base_path, lencoder):
     image_array = []
     label_array = []
-    end_img = start+batch_size
-    if end_img > len(dataframe):
-        end_img = len(dataframe)
+    end_img = min(start + batch_size, len(dataframe))
+    
     for idx in range(start, end_img):
-        n = idx
-        im, label = get_image_from_number(n, dataframe)
-        im = image_reshape(im, (224, 224)) / 255.0
+        im, label = get_image_and_label(idx, dataframe, base_path)
+        im = cv2.resize(im, IMG_SIZE) / 255.0
         image_array.append(im)
         label_array.append(label)
-    label_array = encode_label(label_array)
+        
+    label_array = lencoder.transform(label_array)
     return np.array(image_array), np.array(label_array)
-batch_size = 16
-epoch_shuffle = True
-weight_classes = True
-epochs = 15
-# Split train data up into 80% and 20% validation
-train, validate = np.split(df.sample(frac=1), [int(.8*len(df))])
-print("Training on:", len(train), "samples")
-print("Validation on:", len(validate), "samples")
-for e in range(epochs):
-    print("Epoch: ", str(e+1) + "/" + str(epochs))
-    if epoch_shuffle:
-        train = train.sample(frac = 1)
-    for it in range(int(np.ceil(len(train)/batch_size))):
-        X_train, y_train = get_batch(train, it*batch_size, batch_size)
-        model.train_on_batch(X_train, y_train)
-model.save("Model.h5")
 
-### Test on the training set
-batch_size = 16
-errors = 0
-good_preds = []
-bad_preds = []
-for it in range(int(np.ceil(len(validate)/batch_size))):
-    X_train, y_train = get_batch(validate, it*batch_size, batch_size)
-    result = model.predict(X_train)
-    cla = np.argmax(result, axis=1)
-    for idx, res in enumerate(result):
-        print("Class:", cla[idx], "- Confidence:", np.round(res[cla[idx]],2), "- GT:", y_train[idx])
-        if cla[idx] != y_train[idx]:
-            errors = errors + 1
-            bad_preds.append([batch_size*it + idx, cla[idx], res[cla[idx]]])
-        else:
-            good_preds.append([batch_size*it + idx, cla[idx], res[cla[idx]]])
-print("Errors: ", errors, "Acc:", np.round(100*(len(validate)-errors)/len(validate),2))
+def build_model(num_classes):
+    source_model = VGG19(weights=None, include_top=False, input_shape=(IMG_SIZE[0], IMG_SIZE[1], 3))
+    
+    model = Sequential()
+    for layer in source_model.layers:
+        model.add(layer)
+        
+    model.add(Flatten())
+    model.add(BatchNormalization())
+    model.add(Dropout(0.5))
+    model.add(Dense(num_classes, activation="softmax"))
+    
+    optim = RMSprop(learning_rate=0.0001, momentum=0.09)
+    model.compile(optimizer=optim,
+                 loss="sparse_categorical_crossentropy",
+                 metrics=["accuracy"])
+    return model
 
+def main():
+    print("Loading data...")
+    df = load_data(CSV_PATH, SAMPLES)
+    if df.empty:
+        print("Dataframe is empty. Ensure 'train.csv' is present. Exiting.")
+        return
+        
+    perform_eda(df)
+    
+    lencoder = LabelEncoder()
+    lencoder.fit(df["landmark_id"])
+    num_classes = len(lencoder.classes_)
+    
+    print("\nBuilding model...")
+    model = build_model(num_classes)
+    model.summary()
+    
+    # Split train data up into 80% and 20% validation
+    train_df = df.sample(frac=0.8, random_state=42)
+    val_df = df.drop(train_df.index)
+    
+    print(f"\nTraining on: {len(train_df)} samples")
+    print(f"Validation on: {len(val_df)} samples")
+    
+    for e in range(EPOCHS):
+        print(f"\nEpoch: {e+1}/{EPOCHS}")
+        train_df = train_df.sample(frac=1) # Shuffle data at the beginning of each epoch
+        
+        # Training
+        batch_count = int(np.ceil(len(train_df) / BATCH_SIZE))
+        for it in range(batch_count):
+            X_train, y_train = get_batch(train_df, it * BATCH_SIZE, BATCH_SIZE, BASE_PATH, lencoder)
+            if len(X_train) > 0:
+                loss, acc = model.train_on_batch(X_train, y_train)
+                if it % 10 == 0:
+                    print(f"Batch {it}/{batch_count} - loss: {loss:.4f} - acc: {acc:.4f}")
+                    
+    print("\nSaving model to Model.h5...")
+    model.save("Model.h5")
+    
+    print("\nEvaluating on validation set...")
+    errors = 0
+    val_batch_count = int(np.ceil(len(val_df) / BATCH_SIZE))
+    for it in range(val_batch_count):
+        X_val, y_val = get_batch(val_df, it * BATCH_SIZE, BATCH_SIZE, BASE_PATH, lencoder)
+        if len(X_val) > 0:
+            result = model.predict(X_val, verbose=0)
+            preds = np.argmax(result, axis=1)
+            errors += np.sum(preds != y_val)
+            
+    if len(val_df) > 0:
+        acc = 100 * (len(val_df) - errors) / len(val_df)
+        print(f"Errors: {errors}, Validation Accuracy: {acc:.2f}%")
 
-
-#Good predictions
-good_preds = np.array(good_preds)
-good_preds = np.array(sorted(good_preds, key = lambda x: x[2], reverse=True))
-fig=plt.figure(figsize=(16, 16))
-for i in range(1,6):
-    n = int(good_preds[i,0])
-    img, lbl = get_image_from_number(n, validate)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    fig.add_subplot(1, 5, i)
-    plt.imshow(img)
-    lbl2 = np.array(int(good_preds[i,1])).reshape(1,1)
-    sample_cnt = list(df.landmark_id).count(lbl)
-    plt.title("Label: " + str(lbl) + "nClassified as: " + str(decode_label(lbl2)) + "nSamples in class " + str(lbl) + ": " + str(sample_cnt))
-    plt.axis('off')
-plt.show()
-
-
+if __name__ == "__main__":
+    main()
